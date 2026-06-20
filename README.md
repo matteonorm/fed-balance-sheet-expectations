@@ -22,7 +22,7 @@ Over 21 overlapping months with SMA data, the Pearson correlation between F_t an
 ## Figures
 
 ### Figure 1: Main comparison
-APP + PEPP bond holdings with SMA survey medians (top) and LLM balance statistic with key policy events annotated (bottom).
+Eurosystem policy balance sheet — securities (APP+PEPP+SMP) plus lending (TLTROs) — with SMA survey medians for APP+PEPP (top) and LLM balance statistic with key policy events annotated (bottom).
 
 ![Main comparison](output/fig1_main_comparison.png)
 
@@ -46,8 +46,8 @@ Distribution of the LLM's self-reported confidence scores by classification dire
 
 ![Confidence](output/fig5_confidence_distribution.png)
 
-### Figure 6: ECB balance sheet with policy regimes
-APP + PEPP bond holdings with shaded bands for the main policy regimes: QE restart + PEPP, and quantitative tightening.
+### Figure 6: ECB policy balance sheet decomposition
+Stacked area showing the two components of the Eurosystem policy balance sheet — securities held for monetary policy and lending to credit institutions (TLTROs) — with regime shading.
 
 ![Regimes](output/fig6_ecb_bs_regimes.png)
 
@@ -59,6 +59,7 @@ APP + PEPP bond holdings with shaded bands for the main policy regimes: QE resta
 | GDELT DOC 2.0 API | Apr 2019 - Apr 2020 | Keyword search for ECB balance sheet articles |
 | Google News RSS | 2009 - 2026 | RSS feed search for ECB-related queries |
 | ECB APP/PEPP CSVs | Oct 2014 - present | Monthly APP and PEPP bond holdings from ECB published breakdowns |
+| ECB Data Portal (ILM) | 2014 - present | Weekly Eurosystem securities (asset 7.1) and lending (asset 5) |
 
 ## Pipeline
 
@@ -94,7 +95,8 @@ All data is stored in a single DuckDB file (`ecb_bs.duckdb`) with tables:
 - `gdelt_articles` - News article headlines
 - `llm_classifications` - LLM direction classifications
 - `llm_expectations` - Monthly aggregated F_t
-- `ecb_app_pepp` - APP + PEPP bond holdings (actual)
+- `ecb_app_pepp` - APP + PEPP bond holdings (monthly, from ECB CSVs)
+- `ecb_policy_bs` - Securities + lending (weekly, from ECB Data Portal)
 
 ## Methodology
 

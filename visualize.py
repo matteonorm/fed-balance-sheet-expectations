@@ -73,6 +73,14 @@ def load_all_data(db_path=DUCKDB_PATH):
         FROM ecb_app_pepp ORDER BY observation_date
     """).fetchdf()
 
+    policy_bs_df = con.execute("""
+        SELECT observation_date,
+               securities_eur,
+               lending_eur,
+               total_policy_eur
+        FROM ecb_policy_bs ORDER BY observation_date
+    """).fetchdf()
+
     article_counts = con.execute("""
         SELECT strftime(seendate, '%Y-%m') AS month, COUNT(*) AS n
         FROM gdelt_articles GROUP BY month ORDER BY month
@@ -86,7 +94,7 @@ def load_all_data(db_path=DUCKDB_PATH):
     """).fetchdf()
 
     con.close()
-    return llm_df, sma_df, ecb_df, article_counts, classification_detail
+    return llm_df, sma_df, ecb_df, policy_bs_df, article_counts, classification_detail
 
 
 def _add_light_grid(ax, axis="y"):
@@ -97,8 +105,8 @@ def _add_light_grid(ax, axis="y"):
         ax.xaxis.grid(True, color=COLORS["light_grid"], linewidth=0.5)
 
 
-def plot_main_comparison(llm_df, sma_df, ecb_df, output_dir):
-    """Figure 1: The main result — LLM sentiment vs actual ECB balance sheet."""
+def plot_main_comparison(llm_df, sma_df, ecb_df, policy_bs_df, output_dir):
+    """Figure 1: The main result — LLM sentiment vs actual ECB policy balance sheet."""
     if llm_df.empty:
         return
 
@@ -110,12 +118,17 @@ def plot_main_comparison(llm_df, sma_df, ecb_df, output_dir):
     llm["date"] = pd.to_datetime(llm["period"] + "-15")
     llm_valid = llm.dropna(subset=["f_statistic"])
 
-    # Top panel: ECB total assets + SMA
-    if not ecb_df.empty:
-        ecb = ecb_df.copy()
-        ecb["observation_date"] = pd.to_datetime(ecb["observation_date"])
-        ax1.plot(ecb["observation_date"], ecb["total_holdings_eur"] / 1e3,
-                 color=COLORS["ecb_assets"], linewidth=2, label="APP + PEPP holdings")
+    # Top panel: policy balance sheet (securities + lending) + SMA
+    if not policy_bs_df.empty:
+        pol = policy_bs_df.copy()
+        pol["observation_date"] = pd.to_datetime(pol["observation_date"])
+        ax1.plot(pol["observation_date"], pol["total_policy_eur"] / 1e3,
+                 color=COLORS["ecb_assets"], linewidth=2,
+                 label="Securities + lending (policy BS)")
+        ax1.fill_between(pol["observation_date"],
+                         pol["securities_eur"] / 1e3,
+                         pol["total_policy_eur"] / 1e3,
+                         color=COLORS["increase"], alpha=0.15, label="Lending (TLTROs)")
 
     if not sma_df.empty:
         sma = sma_df.copy()
@@ -124,12 +137,12 @@ def plot_main_comparison(llm_df, sma_df, ecb_df, output_dir):
         first_fc = sma.groupby("vintage").first().reset_index()
         ax1.scatter(first_fc["vintage_date"], first_fc["total_holdings_eur"],
                     color=COLORS["sma"], edgecolors="#b8860b", s=35, zorder=5,
-                    linewidths=0.5, label="SMA median (next quarter)")
+                    linewidths=0.5, label="SMA median — APP+PEPP (next qtr)")
 
     ax1.set_ylabel("EUR billion")
     _add_light_grid(ax1)
     ax1.legend(loc="upper left", frameon=False, fontsize=9)
-    ax1.set_title("ECB bond holdings (APP + PEPP): actual path and survey expectations", loc="left")
+    ax1.set_title("Eurosystem policy balance sheet and survey expectations", loc="left")
 
     # Bottom panel: LLM F_t
     ax2.bar(llm_valid["date"], llm_valid["f_statistic"],
@@ -321,19 +334,25 @@ def plot_confidence_distribution(classification_detail, output_dir):
     print(f"Saved: {path}")
 
 
-def plot_ecb_bs_with_regimes(ecb_df, output_dir):
-    """Figure 6: ECB balance sheet with policy regime annotations."""
-    if ecb_df.empty:
+def plot_ecb_bs_with_regimes(policy_bs_df, output_dir):
+    """Figure 6: Eurosystem policy balance sheet with decomposition and regimes."""
+    if policy_bs_df.empty:
         return
 
-    ecb = ecb_df.copy()
-    ecb["observation_date"] = pd.to_datetime(ecb["observation_date"])
-    ecb["total_bn"] = ecb["total_holdings_eur"] / 1e3
+    pol = policy_bs_df.copy()
+    pol["observation_date"] = pd.to_datetime(pol["observation_date"])
 
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    ax.plot(ecb["observation_date"], ecb["total_bn"],
-            color=COLORS["ecb_assets"], linewidth=2)
+    ax.fill_between(pol["observation_date"],
+                    0, pol["securities_eur"] / 1e3,
+                    color=COLORS["ecb_assets"], alpha=0.3, label="Securities (APP+PEPP+SMP)")
+    ax.fill_between(pol["observation_date"],
+                    pol["securities_eur"] / 1e3,
+                    pol["total_policy_eur"] / 1e3,
+                    color=COLORS["increase"], alpha=0.3, label="Lending (TLTROs)")
+    ax.plot(pol["observation_date"], pol["total_policy_eur"] / 1e3,
+            color=COLORS["ecb_assets"], linewidth=1.5)
 
     regimes = [
         ("2019-11-01", "2022-06-30", "QE restart + PEPP", COLORS["increase"]),
@@ -341,15 +360,16 @@ def plot_ecb_bs_with_regimes(ecb_df, output_dir):
     ]
     for start, end, label, color in regimes:
         s, e = pd.Timestamp(start), pd.Timestamp(end)
-        ax.axvspan(s, e, alpha=0.08, color=color)
+        ax.axvspan(s, e, alpha=0.06, color=color)
         mid = s + (e - s) / 2
         y_pos = ax.get_ylim()[1] * 0.95
         ax.text(mid, y_pos, label, ha="center", va="top",
                 fontsize=8, color=COLORS["annotation"], style="italic")
 
     ax.set_ylabel("EUR billion")
-    ax.set_title("APP + PEPP bond holdings and monetary policy regimes", loc="left")
+    ax.set_title("Eurosystem policy balance sheet: securities and lending", loc="left")
     _add_light_grid(ax)
+    ax.legend(loc="upper left", frameon=False, fontsize=9)
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     ax.xaxis.set_major_locator(mdates.YearLocator())
@@ -362,17 +382,18 @@ def plot_ecb_bs_with_regimes(ecb_df, output_dir):
 
 def visualize(db_path=DUCKDB_PATH):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    llm_df, sma_df, ecb_df, article_counts, classification_detail = load_all_data(db_path)
+    llm_df, sma_df, ecb_df, policy_bs_df, article_counts, classification_detail = load_all_data(db_path)
 
     print(f"Data: {len(llm_df)} LLM months, {len(sma_df)} SMA rows, "
-          f"{len(ecb_df)} ECB obs, {len(article_counts)} article months")
+          f"{len(ecb_df)} ECB obs, {len(policy_bs_df)} policy BS obs, "
+          f"{len(article_counts)} article months")
 
-    plot_main_comparison(llm_df, sma_df, ecb_df, OUTPUT_DIR)
+    plot_main_comparison(llm_df, sma_df, ecb_df, policy_bs_df, OUTPUT_DIR)
     plot_classification_shares(llm_df, OUTPUT_DIR)
     plot_article_coverage(article_counts, OUTPUT_DIR)
     plot_f_vs_sma_scatter(llm_df, sma_df, OUTPUT_DIR)
     plot_confidence_distribution(classification_detail, OUTPUT_DIR)
-    plot_ecb_bs_with_regimes(ecb_df, OUTPUT_DIR)
+    plot_ecb_bs_with_regimes(policy_bs_df, OUTPUT_DIR)
 
     print(f"\nAll figures saved to {OUTPUT_DIR}/")
 
