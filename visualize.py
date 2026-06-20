@@ -148,7 +148,6 @@ def plot_main_comparison(llm_df, sma_df, ecb_df, output_dir):
 
     # Key events
     events = [
-        ("2015-01-22", "QE\nannounced", 0.85),
         ("2019-09-12", "QE\nrestarted", 0.85),
         ("2020-03-18", "PEPP\nlaunched", 0.60),
         ("2022-07-01", "Net purchases\nended", -0.60),
@@ -334,7 +333,6 @@ def plot_ecb_bs_with_regimes(ecb_df, output_dir):
             color=COLORS["ecb_assets"], linewidth=2)
 
     regimes = [
-        ("2015-03-09", "2018-12-31", "APP net purchases", COLORS["increase"]),
         ("2019-11-01", "2022-06-30", "QE restart + PEPP", COLORS["increase"]),
         ("2023-03-01", "2026-06-15", "Quantitative tightening", COLORS["decrease"]),
     ]

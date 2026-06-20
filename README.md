@@ -14,8 +14,7 @@ which ranges from -1 (all articles signal contraction) to +1 (all articles signa
 ## Key Findings
 
 The LLM balance statistic correctly captures the major ECB policy regimes:
-- **2015-2019**: Positive F_t during APP net purchases (quantitative easing)
-- **2019-2020**: Strong positive signal when ECB restarted QE and launched PEPP
+- **2019-2020**: Strong positive F_t when ECB restarted QE and launched PEPP
 - **2022 onward**: Sharp transition to negative F_t when ECB ended net purchases and began quantitative tightening
 
 Over 21 overlapping months with SMA data, the Pearson correlation between F_t and the SMA expected quarter-over-quarter change is r = -0.31 (p = 0.18). The negative sign reflects that during the overlap period (2022-2025) both measures agree on the direction (decrease), but more negative F_t values correspond to *faster* expected declines in the SMA.
