@@ -280,6 +280,7 @@ def plot_f_vs_sma_scatter(llm_df, sma_df, output_dir):
 
     from scipy import stats as scipy_stats
     r, p = scipy_stats.pearsonr(merged["f_statistic"], merged["expected_change_pct"])
+    rho, p_rho = scipy_stats.spearmanr(merged["f_statistic"], merged["expected_change_pct"])
 
     z = np.polyfit(merged["f_statistic"], merged["expected_change_pct"], 1)
     x_line = np.linspace(merged["f_statistic"].min(), merged["f_statistic"].max(), 100)
@@ -288,9 +289,16 @@ def plot_f_vs_sma_scatter(llm_df, sma_df, output_dir):
 
     ax.set_xlabel("LLM balance statistic (F_t)")
     ax.set_ylabel("SMA expected change (%)")
-    ax.set_title(f"LLM sentiment vs survey expectations (r = {r:.2f}, p = {p:.2f})",
+    ax.set_title(f"LLM sentiment vs survey expectations (N={len(merged)})",
                  loc="left")
     _add_light_grid(ax, axis="both")
+
+    ax.text(0.97, 0.03,
+            f"Pearson: r={r:.3f}, p={p:.3f}\nSpearman: ρ={rho:.3f}, p={p_rho:.3f}",
+            transform=ax.transAxes, fontsize=8, color=COLORS["annotation"],
+            ha="right", va="bottom",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor=COLORS["light_grid"]))
 
     ax.axhline(0, color="#dee2e6", linewidth=0.5)
     ax.axvline(0, color="#dee2e6", linewidth=0.5)
