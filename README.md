@@ -1,6 +1,6 @@
 # ECB Balance Sheet Expectations: Survey vs LLM-Generated Beliefs
 
-This project compares two sources of expectations about the ECB's balance sheet size (Eurosystem bond holdings under APP and PEPP):
+This project compares two sources of expectations about the ECB's balance sheet size:
 
 1. **Survey-based**: ECB [Survey of Monetary Analysts](https://www.ecb.europa.eu/stats/ecb_surveys/sma/html/all-releases.en.html) (SMA), a quarterly survey of ~70 professional forecasters conducted since 2019
 2. **LLM-generated**: Expectations extracted from news article headlines using the methodology of [Bybee (2025), "The Ghost in the Machine"](https://lelandbybee.com/files/LLM.pdf), where an LLM classifies each headline as implying the balance sheet will *increase*, *decrease*, or is *uncertain*
