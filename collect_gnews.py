@@ -1,6 +1,9 @@
-"""Collect ECB balance sheet news headlines from Google News RSS feeds."""
+"""Collect ECB balance sheet news headlines from Google News RSS feeds.
 
-import re
+Supports both current (undated) and historical (date-windowed) collection.
+Uses quarterly windows with multiple query variants to maximize coverage.
+"""
+
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -20,23 +23,39 @@ QUERIES = [
     "ECB PEPP purchases",
     "Eurosystem balance sheet bonds",
     "ECB bond holdings reduction",
+    "ECB bond buying",
+    "ECB tapering",
+    "ECB reinvestment",
+    "ECB APP programme",
+    "ECB PEPP programme",
+    "ECB sovereign bond",
+    "ECB net asset purchases",
+    "ECB balance sheet normalization",
+    "ECB QE end",
+    "ECB bond buying programme",
+    "ECB portfolio runoff",
 ]
 
-RSS_URL = "https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
+HISTORICAL_WINDOWS = []
+for year in range(2014, 2027):
+    HISTORICAL_WINDOWS.append((f"{year}-01-01", f"{year}-06-30"))
+    HISTORICAL_WINDOWS.append((f"{year}-07-01", f"{year}-12-31"))
+
+RSS_BASE = "https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 
-def fetch_rss(query):
-    url = RSS_URL.format(query=query.replace(" ", "+"))
+def fetch_rss(query, after=None, before=None):
+    q = query.replace(" ", "+")
+    if after and before:
+        q += f"+after:{after}+before:{before}"
+    url = RSS_BASE.format(query=q)
     try:
-        resp = requests.get(url, timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-        })
+        resp = requests.get(url, timeout=15, headers=HEADERS)
         if resp.status_code != 200:
-            print(f"  HTTP {resp.status_code} for query: {query}", flush=True)
             return []
         return parse_rss(resp.text, query)
-    except Exception as e:
-        print(f"  Error fetching {query}: {e}", flush=True)
+    except Exception:
         return []
 
 
@@ -55,12 +74,13 @@ def parse_rss(xml_text, query):
 
             title = title_el.text or ""
             url = link_el.text or ""
-            pubdate = pubdate_el.text if pubdate_el is not None else ""
-            domain = source_el.get("url", "") if source_el is not None else ""
-            source_name = source_el.text if source_el is not None else ""
-
             if not title or not url:
                 continue
+
+            pubdate = pubdate_el.text if pubdate_el is not None else ""
+            domain = ""
+            if source_el is not None:
+                domain = source_el.get("url", "") or source_el.text or ""
 
             seen_dt = None
             if pubdate:
@@ -72,63 +92,87 @@ def parse_rss(xml_text, query):
                         continue
 
             seendate = seen_dt.strftime("%Y-%m-%d %H:%M:%S") if seen_dt else ""
-
             articles.append({
                 "url": url,
                 "title": title.strip(),
                 "seendate": seendate,
-                "domain": domain or source_name or "",
+                "domain": domain,
                 "query": query,
             })
-    except ET.ParseError as e:
-        print(f"  XML parse error: {e}", flush=True)
-
+    except ET.ParseError:
+        pass
     return articles
 
 
-def collect_gnews(db_path=DUCKDB_PATH):
+def insert_articles(con, articles):
+    inserted = 0
+    for art in articles:
+        try:
+            con.execute(
+                """INSERT OR IGNORE INTO gdelt_articles
+                   (url, title, seendate, domain, language, sourcecountry, query_keyword)
+                   VALUES (?, ?, ?, ?, 'English', '', ?)""",
+                [art["url"], art["title"], art["seendate"],
+                 art["domain"], art["query"]],
+            )
+            inserted += 1
+        except Exception:
+            pass
+    return inserted
+
+
+def collect_gnews(db_path=DUCKDB_PATH, historical=True):
     create_schema()
     con = duckdb.connect(db_path)
 
-    total_inserted = 0
+    before_count = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
+    total_fetched = 0
 
+    # Current (undated) queries
+    print("=== Current articles ===", flush=True)
     for query in QUERIES:
-        print(f"Query: {query}", flush=True)
         articles = fetch_rss(query)
-        inserted = 0
+        n = insert_articles(con, articles)
+        total_fetched += len(articles)
+        if articles:
+            print(f"  {query}: {len(articles)} found, {n} new", flush=True)
+        time.sleep(1)
 
-        for art in articles:
-            try:
-                con.execute(
-                    """INSERT OR IGNORE INTO gdelt_articles
-                       (url, title, seendate, domain, language, sourcecountry, query_keyword)
-                       VALUES (?, ?, ?, ?, 'English', '', ?)""",
-                    [art["url"], art["title"], art["seendate"],
-                     art["domain"], art["query"]],
-                )
-                inserted += 1
-            except Exception:
-                pass
+    # Historical backfill with date windows
+    if historical:
+        print("\n=== Historical backfill ===", flush=True)
+        for start, end in HISTORICAL_WINDOWS:
+            window_total = 0
+            window_new = 0
+            for query in QUERIES:
+                articles = fetch_rss(query, after=start, before=end)
+                n = insert_articles(con, articles)
+                window_total += len(articles)
+                window_new += n
+                total_fetched += len(articles)
+                time.sleep(0.5)
 
-        total_inserted += inserted
-        print(f"  Found {len(articles)}, inserted {inserted} new", flush=True)
-        time.sleep(2)
+            half = "H1" if start.endswith("01-01") else "H2"
+            year = start[:4]
+            print(f"  {year} {half}: {window_total} fetched, {window_new} new",
+                  flush=True)
 
-    db_total = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
-    print(f"\nTotal articles in database: {db_total} (+{total_inserted} new)", flush=True)
+    after_count = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
+    net_new = after_count - before_count
+    print(f"\nTotal articles in database: {after_count} (+{net_new} new)", flush=True)
 
     coverage = con.execute("""
         SELECT strftime(seendate, '%Y-%m') AS month, COUNT(*) AS n
         FROM gdelt_articles
-        WHERE seendate IS NOT NULL AND length(seendate) > 0
+        WHERE seendate IS NOT NULL AND length(CAST(seendate AS VARCHAR)) > 0
         GROUP BY month ORDER BY month
     """).fetchall()
-    print("\nMonthly coverage:")
-    for m, c in coverage:
-        print(f"  {m}: {c}", flush=True)
+    thin = sum(1 for _, n in coverage if n < 5)
+    ok = sum(1 for _, n in coverage if n >= 10)
+    print(f"\nCoverage: {len(coverage)} months, {ok} with 10+, {thin} with <5")
 
     con.close()
-    return total_inserted
+    return net_new
 
 
 if __name__ == "__main__":
