@@ -22,13 +22,19 @@ computed only over relevant articles (not_relevant excluded). Professional expec
 | NY Fed Surveys (PDF) | 2011–Jun 2023 | 86 PDFs |
 | FRED (actuals) | 2008–present | Weekly |
 
-## Figures
+## Results
+
+The news-derived belief index co-moves with professional forecaster expectations of the SOMA portfolio path (Spearman $\rho$ = 0.51, p = 0.005, N = 29).
 
 ### Figure 1: Belief index with regime shading
 ![Beliefs](output/fig1_beliefs.png)
 
+$F_t$ over time across six Fed regimes: pre-taper, taper tantrum, reinvestment, QT1, QE (COVID), and QT2. 534 relevant articles out of 4,749 total (11.2%).
+
 ### Figure 2: Beliefs vs survey expectations
 ![Correlation](output/fig2_correlation.png)
+
+Contemporaneous correlation between $F_t$ and NY Fed survey expected SOMA change. Survey signal combines purchase pace / SOMA change path data (2013–2022) with first-differenced level expectations (2018–2026).
 
 ## Pipeline
 
