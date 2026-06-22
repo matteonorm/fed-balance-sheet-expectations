@@ -4,3 +4,6 @@ requests
 anthropic
 matplotlib
 openpyxl
+scipy
+statsmodels
+fredapi

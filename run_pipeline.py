@@ -1,77 +1,99 @@
-import argparse
+"""
+End-to-end pipeline for the Fed balance-sheet expectations project.
+
+Usage:
+    python run_pipeline.py              # run full pipeline
+    python run_pipeline.py collect      # collect only (surveys, FRED, news)
+    python run_pipeline.py classify     # classify + aggregate
+    python run_pipeline.py analyze      # analysis + figures
+"""
+
 import sys
+import os
+
+
+def run_collect():
+    print("=" * 60)
+    print("STEP 1: Collect NY Fed survey data (Excel)")
+    print("=" * 60)
+    from collect_nyfed_survey import main as collect_survey
+    collect_survey()
+
+    print("\n" + "=" * 60)
+    print("STEP 2: Collect FRED balance-sheet actuals")
+    print("=" * 60)
+    from collect_fred import main as collect_fred
+    collect_fred()
+
+    print("\n" + "=" * 60)
+    print("STEP 3: Collect news articles (GDELT)")
+    print("=" * 60)
+    from collect_gdelt import main as collect_gdelt
+    collect_gdelt()
+
+    print("\n" + "=" * 60)
+    print("STEP 3b: Collect news articles (Google News)")
+    print("=" * 60)
+    from collect_gnews import main as collect_gnews
+    collect_gnews()
+
+
+def run_classify():
+    print("\n" + "=" * 60)
+    print("STEP 4: Classify articles (4-class, k=5 ensemble)")
+    print("=" * 60)
+    sys.argv = ["classify.py", "run"]
+    from classify import main as classify_main
+    classify_main()
+
+    print("\n" + "=" * 60)
+    print("STEP 5: Aggregate to monthly F_t")
+    print("=" * 60)
+    from aggregate import build_ft
+    build_ft()
+
+
+def run_analyze():
+    print("\n" + "=" * 60)
+    print("STEP 6: Lead-lag analysis")
+    print("=" * 60)
+    from leadlag_analysis import main as leadlag_main
+    leadlag_main()
+
+    print("\n" + "=" * 60)
+    print("STEP 7: Generate figures")
+    print("=" * 60)
+    from visualize import main as viz_main
+    viz_main()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ECB Balance Sheet Expectations Pipeline")
-    parser.add_argument("steps", nargs="*", default=["all"],
-                        help="Pipeline steps to run: schema, sma, gdelt, ecb, classify, aggregate, compare, visualize, all")
-    parser.add_argument("--max-articles", type=int, default=None,
-                        help="Limit number of articles to classify (for testing)")
-    args = parser.parse_args()
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
 
-    steps = [s.lower() for s in args.steps]
-    run_all = "all" in steps
-
-    if run_all or "schema" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 1: Creating DuckDB schema")
-        print("=" * 60)
-        from schema import create_schema
-        create_schema()
-
-    if run_all or "sma" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 2: Collecting ECB SMA survey data")
-        print("=" * 60)
-        from collect_sma import collect_sma
-        collect_sma()
-
-    if run_all or "gdelt" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 3: Collecting GDELT news articles")
-        print("=" * 60)
-        from collect_gdelt import collect_gdelt
-        collect_gdelt()
-
-    if run_all or "ecb" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 4: Collecting ECB balance sheet actuals")
-        print("=" * 60)
-        from collect_ecb_bs import collect_ecb_balance_sheet
-        collect_ecb_balance_sheet()
-
-    if run_all or "classify" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 5: Classifying headlines with Claude")
-        print("=" * 60)
-        from process_headlines import process_unclassified
-        process_unclassified(max_articles=args.max_articles)
-
-    if run_all or "aggregate" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 6: Computing balance statistic")
-        print("=" * 60)
-        from aggregate import compute_monthly_f_statistic
-        compute_monthly_f_statistic()
-
-    if run_all or "compare" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 7: Comparing LLM vs survey expectations")
-        print("=" * 60)
-        from compare import compare
-        compare()
-
-    if run_all or "visualize" in steps:
-        print("\n" + "=" * 60)
-        print("STEP 8: Generating visualizations")
-        print("=" * 60)
-        from visualize import visualize
-        visualize()
+    if cmd == "collect":
+        run_collect()
+    elif cmd == "classify":
+        run_classify()
+    elif cmd == "analyze":
+        run_analyze()
+    elif cmd == "all":
+        run_collect()
+        run_classify()
+        run_analyze()
+    else:
+        print(f"Unknown command: {cmd}")
+        print("Usage: python run_pipeline.py [collect|classify|analyze|all]")
 
     print("\n" + "=" * 60)
-    print("Pipeline complete!")
+    print("PIPELINE COMPLETE")
     print("=" * 60)
+    print(f"\nFiles in output/:")
+    output_dir = os.path.join(os.path.dirname(__file__), "output")
+    if os.path.exists(output_dir):
+        for f in sorted(os.listdir(output_dir)):
+            path = os.path.join(output_dir, f)
+            sz = os.path.getsize(path)
+            print(f"  {f}: {sz:,} bytes")
 
 
 if __name__ == "__main__":

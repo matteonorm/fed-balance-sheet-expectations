@@ -1,179 +1,130 @@
-"""Collect ECB balance sheet news headlines from Google News RSS feeds.
+"""
+Collect news articles about the Fed balance sheet from Google News RSS.
+Coverage goes back ~6-12 months from current date.
 
-Supports both current (undated) and historical (date-windowed) collection.
-Uses quarterly windows with multiple query variants to maximize coverage.
+Usage:
+    python collect_gnews.py
 """
 
+import os
+import sys
+import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
-
-import duckdb
 import requests
-
+import duckdb
+from datetime import datetime
+from urllib.parse import quote
 from config import DUCKDB_PATH
-from schema import create_schema
 
-QUERIES = [
-    "ECB balance sheet",
-    "ECB asset purchases",
-    "ECB quantitative tightening",
-    "ECB quantitative easing",
-    "ECB bond purchases APP",
-    "ECB PEPP purchases",
-    "Eurosystem balance sheet bonds",
-    "ECB bond holdings reduction",
-    "ECB bond buying",
-    "ECB tapering",
-    "ECB reinvestment",
-    "ECB APP programme",
-    "ECB PEPP programme",
-    "ECB sovereign bond",
-    "ECB net asset purchases",
-    "ECB balance sheet normalization",
-    "ECB QE end",
-    "ECB bond buying programme",
-    "ECB portfolio runoff",
+GNEWS_QUERIES = [
+    "Federal Reserve balance sheet",
+    "Fed balance sheet reduction",
+    "quantitative tightening Fed",
+    "SOMA portfolio Federal Reserve",
+    "Fed tapering",
+    "Fed asset purchases",
+    "Treasury runoff Federal Reserve",
+    "MBS runoff Fed",
+    "Federal Reserve QT",
+    "Federal Reserve QE",
+    "Fed balance sheet normalization",
+    "FOMC balance sheet",
+    "Fed reserves ample",
+    "SOMA holdings",
 ]
 
-HISTORICAL_WINDOWS = []
-for year in range(2014, 2027):
-    HISTORICAL_WINDOWS.append((f"{year}-01-01", f"{year}-06-30"))
-    HISTORICAL_WINDOWS.append((f"{year}-07-01", f"{year}-12-31"))
-
-RSS_BASE = "https://news.google.com/rss/search?q={query}&hl=en&gl=US&ceid=US:en"
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+GNEWS_RSS = "https://news.google.com/rss/search"
 
 
-def fetch_rss(query, after=None, before=None):
-    q = query.replace(" ", "+")
-    if after and before:
-        q += f"+after:{after}+before:{before}"
-    url = RSS_BASE.format(query=q)
+def fetch_gnews_rss(query, when=None):
+    """Fetch Google News RSS for a query."""
+    params = {"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+    if when:
+        params["q"] += f" when:{when}"
+
     try:
-        resp = requests.get(url, timeout=15, headers=HEADERS)
+        resp = requests.get(GNEWS_RSS, params=params, timeout=15,
+                           headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code != 200:
             return []
-        return parse_rss(resp.text, query)
-    except Exception:
+
+        root = ET.fromstring(resp.content)
+        articles = []
+        for item in root.findall('.//item'):
+            title = item.findtext('title', '')
+            link = item.findtext('link', '')
+            pubdate = item.findtext('pubDate', '')
+            source = item.findtext('source', '')
+
+            if not title or not link:
+                continue
+
+            try:
+                dt = datetime.strptime(pubdate, "%a, %d %b %Y %H:%M:%S %Z")
+            except (ValueError, TypeError):
+                dt = datetime.now()
+
+            articles.append({
+                'title': re.sub(r' - .*$', '', title),
+                'url': link,
+                'seendate': dt,
+                'domain': source or '',
+            })
+
+        return articles
+
+    except Exception as e:
+        print(f"  Error fetching {query[:30]}: {e}")
         return []
 
 
-def parse_rss(xml_text, query):
-    articles = []
-    try:
-        root = ET.fromstring(xml_text)
-        for item in root.findall(".//item"):
-            title_el = item.find("title")
-            link_el = item.find("link")
-            pubdate_el = item.find("pubDate")
-            source_el = item.find("source")
-
-            if title_el is None or link_el is None:
-                continue
-
-            title = title_el.text or ""
-            url = link_el.text or ""
-            if not title or not url:
-                continue
-
-            pubdate = pubdate_el.text if pubdate_el is not None else ""
-            domain = ""
-            if source_el is not None:
-                domain = source_el.get("url", "") or source_el.text or ""
-
-            seen_dt = None
-            if pubdate:
-                for fmt in ["%a, %d %b %Y %H:%M:%S %Z", "%a, %d %b %Y %H:%M:%S %z"]:
-                    try:
-                        seen_dt = datetime.strptime(pubdate.strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-
-            seendate = seen_dt.strftime("%Y-%m-%d %H:%M:%S") if seen_dt else ""
-            articles.append({
-                "url": url,
-                "title": title.strip(),
-                "seendate": seendate,
-                "domain": domain,
-                "query": query,
-            })
-    except ET.ParseError:
-        pass
-    return articles
-
-
-def insert_articles(con, articles):
-    inserted = 0
-    for art in articles:
-        try:
-            con.execute(
-                """INSERT OR IGNORE INTO gdelt_articles
-                   (url, title, seendate, domain, language, sourcecountry, query_keyword)
-                   VALUES (?, ?, ?, ?, 'English', '', ?)""",
-                [art["url"], art["title"], art["seendate"],
-                 art["domain"], art["query"]],
-            )
-            inserted += 1
-        except Exception:
-            pass
-    return inserted
-
-
-def collect_gnews(db_path=DUCKDB_PATH, historical=True):
+def main():
+    from schema import create_schema
     create_schema()
-    con = duckdb.connect(db_path)
 
-    before_count = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
-    total_fetched = 0
+    con = duckdb.connect(DUCKDB_PATH)
 
-    # Current (undated) queries
-    print("=== Current articles ===", flush=True)
-    for query in QUERIES:
-        articles = fetch_rss(query)
-        n = insert_articles(con, articles)
-        total_fetched += len(articles)
-        if articles:
-            print(f"  {query}: {len(articles)} found, {n} new", flush=True)
-        time.sleep(1)
+    existing_urls = set()
+    try:
+        urls = con.execute("SELECT url FROM gdelt_articles").fetchall()
+        existing_urls = {r[0] for r in urls}
+    except Exception:
+        pass
 
-    # Historical backfill with date windows
-    if historical:
-        print("\n=== Historical backfill ===", flush=True)
-        for start, end in HISTORICAL_WINDOWS:
-            window_total = 0
-            window_new = 0
-            for query in QUERIES:
-                articles = fetch_rss(query, after=start, before=end)
-                n = insert_articles(con, articles)
-                window_total += len(articles)
-                window_new += n
-                total_fetched += len(articles)
-                time.sleep(0.5)
+    total_new = 0
+    for query in GNEWS_QUERIES:
+        for when in [None, "7d", "1m", "6m", "1y"]:
+            articles = fetch_gnews_rss(query, when)
+            new_count = 0
 
-            half = "H1" if start.endswith("01-01") else "H2"
-            year = start[:4]
-            print(f"  {year} {half}: {window_total} fetched, {window_new} new",
-                  flush=True)
+            for art in articles:
+                if art['url'] in existing_urls:
+                    continue
 
-    after_count = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
-    net_new = after_count - before_count
-    print(f"\nTotal articles in database: {after_count} (+{net_new} new)", flush=True)
+                try:
+                    con.execute("""
+                        INSERT OR IGNORE INTO gdelt_articles
+                        (url, title, seendate, domain, language, sourcecountry, query_keyword)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, [art['url'], art['title'], art['seendate'].isoformat(),
+                          art['domain'], 'English', 'United States',
+                          f"gnews:{query}"])
+                    existing_urls.add(art['url'])
+                    new_count += 1
+                except Exception:
+                    pass
 
-    coverage = con.execute("""
-        SELECT strftime(seendate, '%Y-%m') AS month, COUNT(*) AS n
-        FROM gdelt_articles
-        WHERE seendate IS NOT NULL AND length(CAST(seendate AS VARCHAR)) > 0
-        GROUP BY month ORDER BY month
-    """).fetchall()
-    thin = sum(1 for _, n in coverage if n < 5)
-    ok = sum(1 for _, n in coverage if n >= 10)
-    print(f"\nCoverage: {len(coverage)} months, {ok} with 10+, {thin} with <5")
+            total_new += new_count
+            time.sleep(1)
 
+        if new_count > 0:
+            print(f"  {query}: {new_count} new")
+
+    total = con.execute("SELECT COUNT(*) FROM gdelt_articles").fetchone()[0]
     con.close()
-    return net_new
+    print(f"\nGoogle News: {total_new} new articles, {total} total in DB")
 
 
 if __name__ == "__main__":
-    collect_gnews()
+    main()
