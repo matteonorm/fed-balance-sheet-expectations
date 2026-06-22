@@ -1,4 +1,4 @@
-# Balance Sheet Expectations
+# FED Balance Sheet Expectations
 
 Professional balance-sheet beliefs track the news contemporaneously. Following Bybee (2025), this project constructs an LLM-derived belief index from news headlines and compares it with professional forecaster expectations from the NY Fed surveys.
 
@@ -61,7 +61,7 @@ pip install -r requirements.txt
 Environment variables (in `.env`):
 - `ANTHROPIC_API_KEY`
 - `NYT_API_KEY`
-- `FRED_API_KEY` (optional)
+- `FRED_API_KEY` 
 
 ## References
 
