@@ -110,14 +110,18 @@ def fig1_beliefs(db_path=DUCKDB_PATH):
 
 
 def _build_survey_signal(con):
-    """Build a unified survey direction signal: pace data + first-differenced levels."""
+    """Build a unified survey direction signal from all available survey data.
+
+    Uses pace/change data where available, falls back to first-differenced
+    level expectations. Both sub-series are z-scored before combining so
+    they are on comparable scales. Then linearly interpolated to monthly.
+    """
     pace = con.execute("""
         SELECT strftime(survey_date, '%Y-%m') as period,
                AVG(pctl50) as value
         FROM nyfed_survey_bs
         WHERE pctl50 IS NOT NULL
           AND horizon_date > survey_date
-          AND DATEDIFF('day', survey_date, horizon_date) BETWEEN 30 AND 730
           AND (variable LIKE '%purchase_pace%'
                OR variable LIKE '%soma_change%'
                OR variable LIKE '%portfolio_change%'
@@ -132,10 +136,10 @@ def _build_survey_signal(con):
         FROM nyfed_survey_bs
         WHERE pctl50 IS NOT NULL
           AND horizon_date > survey_date
-          AND DATEDIFF('day', survey_date, horizon_date) BETWEEN 90 AND 730
           AND (variable LIKE '%soma_size_dist%'
                OR variable LIKE '%soma_portfolio_level%'
                OR variable LIKE '%soma_total%'
+               OR variable LIKE '%soma_securities%'
                OR variable = 'total_assets')
           AND pctl50 > 100
         GROUP BY strftime(survey_date, '%Y-%m')
@@ -144,13 +148,13 @@ def _build_survey_signal(con):
 
     level['gap'] = level['period'].apply(lambda x: pd.Timestamp(x + '-01')).diff().dt.days
     level['value'] = level['level'].diff()
-    level = level[(level['gap'] <= 180) & level['value'].notna()].copy()
+    level = level[(level['gap'] <= 400) & level['value'].notna()].copy()
 
     combined = pace[['period', 'value']].copy()
     level_only = level[~level['period'].isin(pace['period'])][['period', 'value']]
     combined = pd.concat([combined, level_only]).sort_values('period').reset_index(drop=True)
 
-    return combined
+    return combined[['period', 'value']]
 
 
 def fig2_correlation(db_path=DUCKDB_PATH):
